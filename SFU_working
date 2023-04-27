@@ -1,1 +1,300 @@
+let http = require("http");
+let express = require("express");
+let cors = require("cors");
+let socketio = require("socket.io");
+let wrtc = require("wrtc");
+const app = express();
+const server = http.createServer(app);
+app.use(cors());
+
+/** To map users socketid to peer object of all receivers **/
+let receiverPCs = {};
+
+/** To map users socketid to peer object of all senders **/
+let senderPCs = {};
+
+/** Store id and streams all users in room **/
+let users = {};
+
+/** To map socket id of users to the room. **/
+let socketToRoom = {};
+
+/** Stores ICE Candidate servers **/
+const pc_config = {
+  iceServers: [
+    {
+      urls: "stun:stun.l.google.com:19302",
+    },
+  ],
+};
+
+/** Checks whether a given item is present in an array and return a boolean value **/
+const isIncluded = (array, id) => array.some((item) => item.id === id);
+
+/**
+ * To create and return a webRTC peer object
+ * Also handles all event like ontrack and onicecandiate
+ **/
+const createReceiverPeerConnection = (socketID, socket, roomID) => {
+  const pc = new wrtc.RTCPeerConnection(pc_config);
+  if (receiverPCs[socketID]) receiverPCs[socketID] = pc;
+  else receiverPCs = { ...receiverPCs, [socketID]: pc };
+
+  pc.onicecandidate = (e) => {
+    socket.to(socketID).emit("getSenderCandidate", {
+      candidate: e.candidate,
+    });
+  };
+
+
+  pc.oniceconnectionstatechange = (e) => {
+    // Handle event on ICE connection change
+  };
+
+  pc.ontrack = (e) => {
+    try {
+      console.log(
+        "[INFO] pc.ontrack(): Add user track to Selective forwarding list"
+      );
+      if (users[roomID]) {
+        if (!isIncluded(users[roomID], socketID)) {
+          users[roomID].push({
+            id: socketID,
+            stream: e.streams[0],
+          });
+        } else return;
+      } else {
+        users[roomID] = [
+          {
+            id: socketID,
+            stream: e.streams[0],
+          },
+        ];
+      }
+      socket.broadcast.to(roomID).emit("userEnter", { id: socketID });
+    } 
+    catch (e) {
+      console.log(`[ERROR] Selective forwarding list updation failed `)
+    }
+  };
+
+  return pc;
+};
+
+/**
+ * To create and return a wrtc peer object
+ * Also handles all event like ontrack and onicecandiate
+ **/
+const createSenderPeerConnection = (
+  receiverSocketID,
+  senderSocketID,
+  socket,
+  roomID
+) => {
+  const pc = new wrtc.RTCPeerConnection(pc_config);
+  if (senderPCs[senderSocketID]) {
+    senderPCs[senderSocketID].filter((user) => user.id !== receiverSocketID);
+    senderPCs[senderSocketID].push({ id: receiverSocketID, pc });
+  } else
+    senderPCs = {
+      ...senderPCs,
+      [senderSocketID]: [{ id: receiverSocketID, pc }],
+    };
+
+  pc.onicecandidate = (e) => {
+    socket.to(receiverSocketID).emit("getReceiverCandidate", {
+      id: senderSocketID,
+      candidate: e.candidate,
+    });
+  };
+
+  pc.oniceconnectionstatechange = (e) => {
+    // Handle event on ICE connection change
+  };
+
+  const sendUser = users[roomID].filter(
+    (user) => user.id === senderSocketID
+  )[0];
+
+  sendUser.stream.getTracks().forEach((track) => {
+    const audioMixer = new MultiStreamsMixer([microphone1, microphone2]);
+    pc.addTrack(track, sendUser.stream);
+  });
+
+  return pc;
+};
+
+/**
+ * Get the socket id and streams of all users in a room
+ **/
+const getOtherUsersInRoom = (socketID, roomID) => {
+  let allUsers = [];
+
+  if (!users[roomID]) return allUsers;
+
+  allUsers = users[roomID]
+    .filter((user) => user.id !== socketID)
+    .map((otherUser) => ({ id: otherUser.id }));
+
+  return allUsers;
+};
+
+/** To delete a user from a room. **/
+const deleteUser = (socketID, roomID) => {
+  if (!users[roomID]) return;
+  users[roomID] = users[roomID].filter((user) => user.id !== socketID);
+  if (users[roomID].length === 0) {
+    delete users[roomID];
+  }
+  delete socketToRoom[socketID];
+};
+
+/** To close a Peer connection to a Receiver. **/
+const closeReceiverPC = (socketID) => {
+  if (!receiverPCs[socketID]) return;
+
+  receiverPCs[socketID].close();
+  delete receiverPCs[socketID];
+};
+
+/** To close a Peer connection to a Sender. **/
+const closeSenderPCs = (socketID) => {
+  if (!senderPCs[socketID]) return;
+
+  senderPCs[socketID].forEach((senderPC) => {
+    senderPC.pc.close();
+    const eachSenderPC = senderPCs[senderPC.id].filter(
+      (sPC) => sPC.id === socketID
+    )[0];
+    if (!eachSenderPC) return;
+    eachSenderPC.pc.close();
+    senderPCs[senderPC.id] = senderPCs[senderPC.id].filter(
+      (sPC) => sPC.id !== socketID
+    );
+  });
+  delete senderPCs[socketID];
+};
+
+const io = socketio.listen(server);
+/** When a user join the signalling socket server **/
+io.sockets.on("connection", (socket) => {
+  console.log(`[INFO] User connected: ${socket.id}`)
+  /**
+   * Joins a user to a room id and returns all users in the room to the user
+   * @param data: { roomId: "<roomid>", id:"<sendersocketid>"}
+   **/
+  socket.on("joinRoom", (data) => {
+    try {
+      console.log(
+        `[DEBUG] JoinRoom: ${data.id} `
+      );
+      let allUsers = getOtherUsersInRoom(data.id, data.roomID);
+      io.to(data.id).emit("allUsers", { users: allUsers });
+    } catch (error) {
+      console.log(`[ERROR] Send other participant ids failed ${error}`);
+    }
+  });
+
+  /**
+   * receives a users SDP offer and sent back an answer
+   * @param data: { sdp:<SDPOffer>, roomID: "<roomid>", senderSocketID:"<sendersocketid>"}
+   **/
+  socket.on("senderOffer", async (data) => {
+    try {
+      console.log("[DEBUG] senderOffer: ",data.senderSocketID);
+      socketToRoom[data.senderSocketID] = data.roomID;
+      let pc = createReceiverPeerConnection(
+        data.senderSocketID,
+        socket,
+        data.roomID
+      );
+      await pc.setRemoteDescription(data.sdp);
+      let sdp = await pc.createAnswer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      });
+      await pc.setLocalDescription(sdp);
+      socket.join(data.roomID);
+      io.to(data.senderSocketID).emit("getSenderAnswer", { sdp });
+    } catch (error) {
+      console.log(`[ERROR] Sender SDP negotiation failed ${error}`);
+    }
+  });
+
+  /**
+   * Adding Sender's ICE candidate to receiver's peer object.
+   * @param data: { candidate: "<ICEcandidate>", senderSocketID:"<senderid>"}
+   **/
+  socket.on("senderCandidate", async (data) => {
+    try {
+      let pc = receiverPCs[data.senderSocketID];
+      await pc.addIceCandidate(new wrtc.RTCIceCandidate(data.candidate));
+    } catch (error) {
+      console.log(`[ERROR] Sender ICE Candidate processing failed ${error}`);
+    }
+  });
+
+  /**
+   * receives a users SDP offer and sents back an answer
+   * @param data: { sdp:<SDPOffer>, roomID: "<roomid>", senderSocketID:"<sendersocketid>"}
+   **/
+  socket.on("receiverOffer", async (data) => {
+    try {
+      console.log(`[DEBUG] receiverOffer: ${data.senderSocketID}`);
+      let pc = createSenderPeerConnection(
+        data.receiverSocketID,
+        data.senderSocketID,
+        socket,
+        data.roomID
+      );
+      await pc.setRemoteDescription(data.sdp);
+      let sdp = await pc.createAnswer({
+        offerToReceiveAudio: false,
+        offerToReceiveVideo: false,
+      });
+      await pc.setLocalDescription(sdp);
+      io.to(data.receiverSocketID).emit("getReceiverAnswer", {
+        id: data.senderSocketID,
+        sdp,
+      });
+    } catch (error) {
+      console.log(`[ERROR] Receiver SDP negotiation failed${error}`);
+    }
+  });
+
+  /**
+   * Add Receiver's ICE candidate to sender's peer object.
+   * @param data: { candidate: "<ICEcandidate>", senderSocketID:"<senderid>"}
+   **/
+  socket.on("receiverCandidate", async (data) => {
+    try {
+      const senderPC = senderPCs[data.senderSocketID].filter(
+        (sPC) => sPC.id === data.receiverSocketID
+      )[0];
+      await senderPC.pc.addIceCandidate(
+        new wrtc.RTCIceCandidate(data.candidate)
+      );
+    } catch (error) {
+      console.log(`[ERROR] Receiver ICE Candidate processing failed ${error}`);
+    }
+  });
+
+  /* On disconnect event the user will be removed from the room. */
+  socket.on("disconnect", () => {
+    try {
+      console.log(`[INFO] User disconnected: ${socket.id}`);
+      let roomID = socketToRoom[socket.id];
+      deleteUser(socket.id, roomID);
+      closeReceiverPC(socket.id);
+      closeSenderPCs(socket.id);
+      socket.broadcast.to(roomID).emit("userExit", { id: socket.id });
+    } catch (error) {
+      console.log(`[ERROR] User disconnect failed ${error}`);
+    }
+  });
+});
+
+server.listen(process.env.PORT || 9090, () => {
+  console.log("[INFO] server running on 9090");
+});
 
