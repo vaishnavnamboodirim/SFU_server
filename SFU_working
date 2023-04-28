@@ -1,1 +1,18 @@
+  const sendUser = users[roomID].filter(
+    (user) => user.id === senderSocketID
+  )[0];
+  console.log(users)
+  const streams = users['100'].map(item => item.stream);
+  console.log(streams);
+  const stream1 = streams[0];
+  const stream2 = streams[1];
 
+  sendUser.stream.getTracks().forEach((track) => {
+    const audioMixer = new MultiStreamsMixer(stream1,stream2);
+    //pc.addTrack(track, sendUser.stream);
+    
+    pc.addTrack(track, audioMixer.getMixedStream());
+  });
+
+  return pc;
+};
