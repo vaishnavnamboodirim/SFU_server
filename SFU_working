@@ -1,12 +1,12 @@
-function createViewer(type) {
-  if (type === "default" || type === "") {
-    let viewer = new Viewer(document.getElementById("canvas-view"));
-    return viewer;
+function onConnected() {
+  isRunning = true;
+
+  if (null != streamHandler) {
+    type = streamHandler.type;
+    streamHandler.viewer.fitView(view.offsetWidth, view.offsetHeight);
+    document.getElementById("label-title").innerText = streamHandler.target;
   }
 
-  if (type === "h264" || type === "avc") {
-    //let viewer = new VideoPlayer(document.getElementById("video-view"));
-    //return viewer;
-    return null;
-  }
+  subscribeEvents();
+  updateMode(settings.mode);
 }
