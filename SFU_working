@@ -1,12 +1,12 @@
-function initConfig() {
-  config.url = document.getElementById("input-url").value;
-  config.fps = parseInt(document.getElementById("input-fps").value);
-  let selectedIndex = document.getElementById("select-source").selectedIndex;
-  config.mode =
-    document.getElementById("select-source").options[selectedIndex].value;
-  config.window = document.getElementById("input-window").value;
-  config.captureMouse = document.getElementById("check-capture-mouse").checked;
-  settings.autoTest = document.getElementById("check-timeout").checked;
+function createViewer(type) {
+  if (type === "default" || type === "") {
+    let viewer = new Viewer(document.getElementById("canvas-view"));
+    return viewer;
+  }
 
-  console.log("[info] " + config);
+  if (type === "h264" || type === "avc") {
+    //let viewer = new VideoPlayer(document.getElementById("video-view"));
+    //return viewer;
+    return null;
+  }
 }
