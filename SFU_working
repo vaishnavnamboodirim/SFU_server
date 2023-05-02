@@ -1,18 +1,12 @@
-function onConnect() {
-  initConfig();
+function initConfig() {
+  config.url = document.getElementById("input-url").value;
+  config.fps = parseInt(document.getElementById("input-fps").value);
+  let selectedIndex = document.getElementById("select-source").selectedIndex;
+  config.mode =
+    document.getElementById("select-source").options[selectedIndex].value;
+  config.window = document.getElementById("input-window").value;
+  config.captureMouse = document.getElementById("check-capture-mouse").checked;
+  settings.autoTest = document.getElementById("check-timeout").checked;
 
-  streamHandler = new StreamHandler(settings.mode, config, createViewer);
-
-  // Subscribe connected event from stream handler
-  streamHandler.addEventListener("connected", function (e) {
-    console.log("connected");
-    onConnected();
-
-    // If auto test is configured then set the timeout for disconnect.
-    if (settings.autoTest) {
-      timeout = setTimeout(function () {
-        timeout = null;
-        onDisconnect();
-      }, settings.duration);
-    }
-  });
+  console.log("[info] " + config);
+}
