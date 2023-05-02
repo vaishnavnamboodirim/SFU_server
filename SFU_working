@@ -1,12 +1,19 @@
-function onConnected() {
-  isRunning = true;
+function subscribeEvents() {
+  // IME parent input window
+  ime_elm = document.getElementById("input-ime");
+  imeOpened = false;
 
-  if (null != streamHandler) {
-    type = streamHandler.type;
-    streamHandler.viewer.fitView(view.offsetWidth, view.offsetHeight);
-    document.getElementById("label-title").innerText = streamHandler.target;
+  viewer = getViewerElement(type);
+
+  // Prevent showing context menu of canvas
+  viewer.addEventListener("contextmenu", function (event) {
+    DisableDefault(event);
+  });
+  
+  function getViewerElement(type) {
+  let elmnt = null;
+  if ("default" === type || "" === type) {
+    elmnt = document.getElementById("canvas-view");
   }
-
-  subscribeEvents();
-  updateMode(settings.mode);
+  return elmnt;
 }
