@@ -1,17 +1,1 @@
-function onDisconnect() {
-  if (null != timeout) {
-    clearTimeout(timeout);
-    timeout = null;
-  }
 
-  if (null != streamHandler) {
-    streamHandler.disconnect();
-  }
-
-  document.getElementById("container-settings").style.display = "block";
-  document.getElementById("container-view").style.display = "none";
-  document.body.style.background = "white";
-  document.getElementById("label-title").innerText = "Please wait...";
-
-  resetView();
-}
