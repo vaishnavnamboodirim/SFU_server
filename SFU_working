@@ -39,3 +39,7 @@ var settings = {
   /** Duration for auto test, valid only in auto test mode */
   duration: 60000,
 };
+<div id="div-view" class="view lsblk">
+            <canvas id="canvas-view" width="600" height="500"></canvas>
+            <input type="text" id="input-ime" class="input-ime" value="" width="400" height="30" autocomplete="off">
+        </div>
