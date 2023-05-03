@@ -1,1 +1,7 @@
-
+if (settings.autoTest) {
+      timeout = setTimeout(function () {
+        timeout = null;
+        onDisconnect();
+      }, settings.duration);
+    }
+  });
